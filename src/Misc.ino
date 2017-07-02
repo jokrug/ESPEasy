@@ -153,6 +153,12 @@ byte getValueCountFromSensorType(byte sensorType)
     case SENSOR_TYPE_QUAD:
       valueCount = 4;
       break;
+    case SENSOR_TYPE_PENTA:
+      valueCount = 5;
+      break;
+    case SENSOR_TYPE_HEXA:
+      valueCount = 6;
+      break;
   }
   return valueCount;
 }

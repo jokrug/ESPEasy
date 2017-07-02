@@ -91,7 +91,7 @@
 #define DEFAULT_MQTT_PUB    "sensors/espeasy/%sysname%/%tskname%/%valname%" // Enter your pub
 #define DEFAULT_MQTT_SUB    "sensors/espeasy/%sysname%/#" // Enter your sub
 
-#define DEFAULT_PROTOCOL    1                   // Protocol used for controller communications
+#define DEFAULT_PROTOCOL    9                   // Protocol used for controller communications
 //   1 = Domoticz HTTP
 //   2 = Domoticz MQTT
 //   3 = Nodo Telnet
@@ -205,7 +205,7 @@
 #define TASKS_MAX                          12 // max 12!
 #define CONTROLLER_MAX                      3 // max 4!
 #define NOTIFICATION_MAX                    3 // max 4!
-#define VARS_PER_TASK                       4
+#define VARS_PER_TASK                       6
 #define PLUGIN_MAX                         64
 #define PLUGIN_CONFIGVAR_MAX                8
 #define PLUGIN_CONFIGFLOATVAR_MAX           4
@@ -245,6 +245,8 @@
 #define SENSOR_TYPE_DUAL                    5
 #define SENSOR_TYPE_TRIPLE                  6
 #define SENSOR_TYPE_QUAD                    7
+#define SENSOR_TYPE_PENTA                   8
+#define SENSOR_TYPE_HEXA                    9
 #define SENSOR_TYPE_SWITCH                 10
 #define SENSOR_TYPE_DIMMER                 11
 #define SENSOR_TYPE_LONG                   20
