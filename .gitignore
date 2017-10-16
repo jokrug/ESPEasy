@@ -1,6 +1,10 @@
+<<<<<<< HEAD
 .pioenvs
 .clang_complete
 .gcc-flags.json
 .piolibdeps
 
 lib/readme.txt
+=======
+Version.h
+>>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872

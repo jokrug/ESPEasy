@@ -6,9 +6,12 @@
 #define PLUGIN_ID_001         1
 #define PLUGIN_NAME_001       "Switch input"
 #define PLUGIN_VALUENAME1_001 "Switch"
+<<<<<<< HEAD:src/_P001_Switch.ino
 Servo servo1;
 Servo servo2;
 
+=======
+>>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:_P001_Switch.ino
 boolean Plugin_001(byte function, struct EventStruct *event, String& string)
 {
   boolean success = false;
@@ -190,6 +193,40 @@ boolean Plugin_001(byte function, struct EventStruct *event, String& string)
             SendStatus(event->Source, getPinStateJSON(SEARCH_PIN_STATE, PLUGIN_ID_001, event->Par1, log, 0));
           }
         }
+
+        #ifdef PLUGIN_BUILD_TESTING
+
+        if (command == F("rtttl"))
+        {
+          success = true;
+          if (event->Par1 >= 0 && event->Par1 <= 16)
+          {
+            pinMode(event->Par1, OUTPUT);
+            char sng[1024] ="";
+            string.replace("-","#");
+            string.toCharArray(sng, 1024);
+            play_rtttl(event->Par1, sng);
+            setPinState(PLUGIN_ID_001, event->Par1, PIN_MODE_OUTPUT, event->Par2);
+            log = String(F("SW   : ")) + string;
+            addLog(LOG_LEVEL_INFO, log);
+            SendStatus(event->Source, getPinStateJSON(SEARCH_PIN_STATE, PLUGIN_ID_001, event->Par1, log, 0));
+          }
+        }
+
+        if (command == F("tone"))
+        {
+          success = true;
+          if (event->Par1 >= 0 && event->Par1 <= 16)
+          {
+            pinMode(event->Par1, OUTPUT);
+            tone(event->Par1, event->Par2, event->Par3);
+            setPinState(PLUGIN_ID_001, event->Par1, PIN_MODE_OUTPUT, event->Par2);
+            log = String(F("SW   : ")) + string;
+            addLog(LOG_LEVEL_INFO, log);
+            SendStatus(event->Source, getPinStateJSON(SEARCH_PIN_STATE, PLUGIN_ID_001, event->Par1, log, 0));
+          }
+        }
+        #endif
 
         if (command == F("pwm"))
         {

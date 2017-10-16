@@ -256,6 +256,29 @@
 #define SENSOR_TYPE_DIMMER                 11
 #define SENSOR_TYPE_LONG                   20
 #define SENSOR_TYPE_WIND                   21
+<<<<<<< HEAD:src/ESPEasy.ino
+=======
+
+#define PLUGIN_INIT_ALL                     1
+#define PLUGIN_INIT                         2
+#define PLUGIN_READ                         3
+#define PLUGIN_ONCE_A_SECOND                4
+#define PLUGIN_TEN_PER_SECOND               5
+#define PLUGIN_DEVICE_ADD                   6
+#define PLUGIN_EVENTLIST_ADD                7
+#define PLUGIN_WEBFORM_SAVE                 8
+#define PLUGIN_WEBFORM_LOAD                 9
+#define PLUGIN_WEBFORM_SHOW_VALUES         10
+#define PLUGIN_GET_DEVICENAME              11
+#define PLUGIN_GET_DEVICEVALUENAMES        12
+#define PLUGIN_WRITE                       13
+#define PLUGIN_EVENT_OUT                   14
+#define PLUGIN_WEBFORM_SHOW_CONFIG         15
+#define PLUGIN_SERIAL_IN                   16
+#define PLUGIN_UDP_IN                      17
+#define PLUGIN_CLOCK_IN                    18
+#define PLUGIN_TIMER_IN                    19
+>>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:ESPEasy.ino
 
 #define VALUE_SOURCE_SYSTEM                 1
 #define VALUE_SOURCE_SERIAL                 2
@@ -268,6 +291,7 @@
 #define BOOT_CAUSE_DEEP_SLEEP               2
 #define BOOT_CAUSE_EXT_WD                  10
 
+<<<<<<< HEAD:src/ESPEasy.ino
 #define DAT_TASKS_SIZE                   2048
 #define DAT_TASKS_CUSTOM_OFFSET          1024
 #define DAT_CUSTOM_CONTROLLER_SIZE       1024
@@ -279,6 +303,9 @@
 #define DAT_OFFSET_CUSTOM_CONTROLLER    32768  // each custom controller config = 1k, 4 max.
 
 #include "lwip/tcp_impl.h"
+=======
+#include "Version.h"
+>>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:ESPEasy.ino
 #include <ESP8266WiFi.h>
 #include <DNSServer.h>
 #include <WiFiUdp.h>
@@ -399,6 +426,7 @@ struct SettingsStruct
   int16_t       TimeZone;
   boolean       MQTTRetainFlag;
   boolean       InitSPI;
+<<<<<<< HEAD:src/ESPEasy.ino
   byte          Protocol[CONTROLLER_MAX];
   byte          Notification[NOTIFICATION_MAX];
   byte          TaskDeviceNumber[TASKS_MAX];
@@ -429,6 +457,8 @@ struct SettingsStruct
   boolean       Pin_status_led_Inversed;
   boolean       deepSleepOnFail;
   //its safe to extend this struct, up to 65535 bytes, default values in config are 0
+=======
+>>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:ESPEasy.ino
 } Settings;
 
 struct ControllerSettingsStruct
@@ -640,6 +670,7 @@ unsigned long dailyResetCounter = 0;
 
 String eventBuffer = "";
 
+<<<<<<< HEAD:src/ESPEasy.ino
 uint16_t lowestRAM = 0;
 byte lowestRAMid=0;
 /*
@@ -653,6 +684,10 @@ byte lowestRAMid=0;
 8 handle_rules
 9 handle_devices
 */
+=======
+// Blynk_get prototype
+boolean Blynk_get(String command,float *data = NULL );
+>>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:ESPEasy.ino
 
 /*********************************************************************************************\
  * SETUP
@@ -804,10 +839,28 @@ void setup()
   if (Settings.UDPPort != 0)
     portUDP.begin(Settings.UDPPort);
 
+<<<<<<< HEAD:src/ESPEasy.ino
   // Setup MQTT Client
   byte ProtocolIndex = getProtocolIndex(Settings.Protocol[0]);
   if (Protocol[ProtocolIndex].usesMQTT && Settings.ControllerEnabled[0])
     MQTTConnect();
+=======
+    // Setup timers
+    if (bootMode == 0)
+    {
+      for (byte x = 0; x < TASKS_MAX; x++)
+        if (Settings.TaskDeviceTimer[x] !=0)
+          timerSensor[x] = millis() + 30000 + (x * Settings.MessageDelay);
+
+      timer = millis() + 30000; // startup delay 30 sec
+    }
+    else
+    {
+      for (byte x = 0; x < TASKS_MAX; x++)
+        timerSensor[x] = millis() + 0;
+      timer = millis() + 0; // no startup from deepsleep wake up
+    }
+>>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:ESPEasy.ino
 
   sendSysInfoUDP(3);
 
@@ -1025,10 +1078,13 @@ void runEach30Seconds()
 
   WifiCheck();
 
+<<<<<<< HEAD:src/ESPEasy.ino
   #ifdef FEATURE_REPORTING
   ReportStatus();
   #endif
 
+=======
+>>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:ESPEasy.ino
 }
 
 
@@ -1249,8 +1305,11 @@ void backgroundtasks()
   #endif
 
   yield();
+<<<<<<< HEAD:src/ESPEasy.ino
 
   statusLED(false);
 
   runningBackgroundTasks=false;
+=======
+>>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:ESPEasy.ino
 }

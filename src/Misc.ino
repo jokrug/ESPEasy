@@ -152,7 +152,13 @@ byte getValueCountFromSensorType(byte sensorType)
       break;
     case SENSOR_TYPE_TEMP_HUM_BARO:
     case SENSOR_TYPE_TRIPLE:
+<<<<<<< HEAD:src/Misc.ino
     case SENSOR_TYPE_WIND:
+=======
+#ifdef PLUGIN_186
+    case SENSOR_TYPE_WIND:
+#endif
+>>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:Misc.ino
       valueCount = 3;
       break;
     case SENSOR_TYPE_QUAD:
@@ -2480,6 +2486,7 @@ void createRuleEvents(byte TaskIndex)
   }
 }
 
+<<<<<<< HEAD:src/Misc.ino
 void checkRAM(byte id)
 {
   uint16_t freeRAM = FreeMem();
@@ -2490,6 +2497,8 @@ void checkRAM(byte id)
     lowestRAMid = id;
   }
 }
+=======
+>>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:Misc.ino
 
 #ifdef PLUGIN_BUILD_TESTING
 
@@ -2500,7 +2509,10 @@ void checkRAM(byte id)
   \*********************************************************************************************/
 void tone(uint8_t _pin, unsigned int frequency, unsigned long duration) {
   analogWriteFreq(frequency);
+<<<<<<< HEAD:src/Misc.ino
   //NOTE: analogwrite reserves IRAM and uninitalized ram.
+=======
+>>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:Misc.ino
   analogWrite(_pin,100);
   delay(duration);
   analogWrite(_pin,0);
@@ -2664,6 +2676,7 @@ void play_rtttl(uint8_t _pin, char *p )
 }
 
 #endif
+<<<<<<< HEAD:src/Misc.ino
 
 
 #ifdef FEATURE_ARDUINO_OTA
@@ -2752,3 +2765,5 @@ void htmlEscape(String & html)
   html.replace("<",  "&lt;");
   html.replace(">",  "&gt;");
 }
+=======
+>>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:Misc.ino

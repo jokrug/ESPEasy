@@ -403,6 +403,38 @@ void ExecuteCommand(byte source, const char *Line)
     }
   }
 
+#ifdef PLUGIN_BUILD_TESTING
+  // ****************************************
+  // special commands for Blynk
+  // ****************************************
+
+  if (strcasecmp(Command, "BlynkGet") == 0)
+  {
+    String event = Line;
+    event = event.substring(9);
+    int index = event.indexOf(',');
+    if (index > 0)
+    {
+      int index = event.lastIndexOf(',');
+      String blynkcommand = event.substring(index+1);
+      float value = 0;
+      if (Blynk_get(blynkcommand, &value))
+      {
+        UserVar[(VARS_PER_TASK * (Par1 - 1)) + Par2 - 1] = value;
+      }
+      else
+        status = F("Error getting data");
+    }
+    else
+    {
+      if (!Blynk_get(event))
+      {
+        status = F("Error getting data");
+      }
+    }
+
+  }
+#endif
 
   // ****************************************
   // configure settings commands
@@ -449,6 +481,7 @@ void ExecuteCommand(byte source, const char *Line)
     WifiDisconnect();
   }
 
+<<<<<<< HEAD:src/Command.ino
   if (strcasecmp_P(Command, PSTR("WifiAPMode")) == 0)
   {
     WifiAPMode(true);
@@ -456,6 +489,8 @@ void ExecuteCommand(byte source, const char *Line)
   }
 
 
+=======
+>>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:Command.ino
   if (strcasecmp_P(Command, PSTR("Reboot")) == 0)
   {
     success = true;
@@ -538,6 +573,7 @@ void ExecuteCommand(byte source, const char *Line)
   SendStatus(source, status);
   yield();
 }
+<<<<<<< HEAD:src/Command.ino
 
 void printDirectory(File dir, int numTabs) {
   while (true) {
@@ -562,3 +598,5 @@ void printDirectory(File dir, int numTabs) {
     entry.close();
   }
 }
+=======
+>>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:Command.ino
