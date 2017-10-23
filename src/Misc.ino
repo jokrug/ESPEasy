@@ -1,4 +1,3 @@
-
 // clean up tcp connections that are in TIME_WAIT status, to conserve memory
 // In future versions of WiFiClient it should be possible to call abort(), but
 // this feature is not in all upstream versions yet.
@@ -76,8 +75,6 @@ boolean remoteConfig(struct EventStruct *event, String& string)
   boolean success = false;
   String command = parseString(string, 1);
 
-  Serial.print("config call:");
-  Serial.println(string);
   if (command == F("config"))
   {
     success = true;
@@ -88,15 +85,12 @@ boolean remoteConfig(struct EventStruct *event, String& string)
 
       String configTaskName = string.substring(configCommandPos1, configCommandPos2 - 1);
       String configCommand = string.substring(configCommandPos2);
-      Serial.println(configTaskName);
-      Serial.println(configCommand);
 
       int8_t index = getTaskIndexByName(configTaskName);
-      Serial.println(index);
       if (index != -1)
       {
         event->TaskIndex = index;
-        success = PluginCall(PLUGIN_REMOTE_CONFIG, event, configCommand);
+        success = PluginCall(PLUGIN_SET_CONFIG, event, configCommand);
       }
     }
   }
@@ -127,6 +121,21 @@ void flashCount()
   saveToRTC();
 }
 
+String flashGuard()
+{
+  if (RTC.flashDayCounter > MAX_FLASHWRITES_PER_DAY)
+  {
+    String log = F("FS   : Daily flash write rate exceeded! (powercycle to reset this)");
+    addLog(LOG_LEVEL_ERROR, log);
+    return log;
+  }
+  flashCount();
+  return(String());
+}
+
+//use this in function that can return an error string. it automaticly returns with an error string if there where too many flash writes.
+#define FLASH_GUARD() { String flashErr=flashGuard(); if (flashErr.length()) return(flashErr); }
+
 /*********************************************************************************************\
    Get value count from sensor type
   \*********************************************************************************************/
@@ -152,13 +161,7 @@ byte getValueCountFromSensorType(byte sensorType)
       break;
     case SENSOR_TYPE_TEMP_HUM_BARO:
     case SENSOR_TYPE_TRIPLE:
-<<<<<<< HEAD:src/Misc.ino
     case SENSOR_TYPE_WIND:
-=======
-#ifdef PLUGIN_186
-    case SENSOR_TYPE_WIND:
-#endif
->>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:Misc.ino
       valueCount = 3;
       break;
     case SENSOR_TYPE_QUAD:
@@ -183,6 +186,16 @@ String toString(float value, byte decimals)
   String sValue = String(value, decimals);
   sValue.trim();
   return sValue;
+}
+
+/*********************************************************************************************\
+   Format a value to the set number of decimals
+  \*********************************************************************************************/
+String formatUserVar(struct EventStruct *event, byte rel_index)
+{
+  return toString(
+    UserVar[event->BaseVarIndex + rel_index],
+    ExtraTaskSettings.TaskDeviceValueDecimals[rel_index]);
 }
 
 /*********************************************************************************************\
@@ -220,7 +233,7 @@ int getParamStartPos(String& string, byte indexFind)
   String tmpString = string;
   byte count = 0;
   tmpString.replace(" ", ",");
-  for (int x = 0; x < tmpString.length(); x++)
+  for (unsigned int x = 0; x < tmpString.length(); x++)
   {
     if (tmpString.charAt(x) == ',')
     {
@@ -236,7 +249,7 @@ int getParamStartPos(String& string, byte indexFind)
 /*********************************************************************************************\
    set pin mode & state (info table)
   \*********************************************************************************************/
-boolean setPinState(byte plugin, byte index, byte mode, uint16_t value)
+void setPinState(byte plugin, byte index, byte mode, uint16_t value)
 {
   // plugin number and index form a unique key
   // first check if this pin is already known
@@ -365,7 +378,8 @@ boolean timeOut(unsigned long timer)
   // It limits the maximum delay to 24.9 days.
 
   unsigned long now = millis();
-  if (((now >= timer) && ((now - timer) < 1 << 31))  || ((timer >= now) && (timer - now > 1 << 31)))
+  //XXX: fix me, something fishy going on here, this << operator is in the wrong place or parenthesis are wrong
+  if (((now >= timer) && ((now - timer) < 1u << 31))  || ((timer >= now) && (timer - now > 1u << 31)))
     return true;
 
   return false;
@@ -517,26 +531,46 @@ void taskClear(byte taskIndex, boolean save)
   }
 }
 
+/********************************************************************************************\
+  SPIFFS error handling
+  Look here for error # reference: https://github.com/pellepl/spiffs/blob/master/src/spiffs.h
+  \*********************************************************************************************/
+#define SPIFFS_CHECK(result, fname) if (!(result)) { return(FileError(__LINE__, fname)); }
+String FileError(int line, const char * fname)
+{
+   String err("FS   : Error while reading/writing ");
+   err=err+fname;
+   err=err+" in ";
+   err=err+line;
+   addLog(LOG_LEVEL_ERROR, err);
+   return(err);
+}
+
 
 /********************************************************************************************\
   Fix stuff to clear out differences between releases
   \*********************************************************************************************/
-void BuildFixes()
+String BuildFixes()
 {
   Serial.println(F("\nBuild changed!"));
 
   if (Settings.Build < 145)
   {
-    fs::File f = SPIFFS.open("notification.dat", "w");
+    String fname=F("notification.dat");
+    fs::File f = SPIFFS.open(fname, "w");
+    SPIFFS_CHECK(f, fname.c_str());
+
     if (f)
     {
       for (int x = 0; x < 4096; x++)
-        f.write(0);
+      {
+        SPIFFS_CHECK(f.write(0), fname.c_str());
+      }
       f.close();
     }
   }
   Settings.Build = BUILD;
-  SaveSettings();
+  return(SaveSettings());
 }
 
 
@@ -562,6 +596,7 @@ void fileSystemCheck()
     {
       ResetFactory();
     }
+    f.close();
   }
   else
   {
@@ -599,23 +634,24 @@ byte getProtocolIndex(byte Number)
 }
 
 /********************************************************************************************\
-  Find notification index corresponding to protocol setting
+  Get notificatoin protocol index (plugin index), by NPlugin_id
   \*********************************************************************************************/
-byte getNotificationIndex(byte Number)
+byte getNotificationProtocolIndex(byte Number)
 {
-  byte NotificationIndex = 0;
+
   for (byte x = 0; x <= notificationCount ; x++)
     if (Notification[x].Number == Number)
-      NotificationIndex = x;
-  return NotificationIndex;
+      return(x);
+
+  return(NPLUGIN_NOT_FOUND);
 }
 
 /********************************************************************************************\
   Find positional parameter in a char string
   \*********************************************************************************************/
-boolean GetArgv(const char *string, char *argv, int argc)
+boolean GetArgv(const char *string, char *argv, unsigned int argc)
 {
-  int string_pos = 0, argv_pos = 0, argc_pos = 0;
+  unsigned int string_pos = 0, argv_pos = 0, argc_pos = 0;
   char c, d;
   boolean parenthesis = false;
 
@@ -679,7 +715,7 @@ boolean str2ip(char *string, byte* IP)
   byte part = 0;
   int value = 0;
 
-  for (int x = 0; x <= strlen(string); x++)
+  for (unsigned int x = 0; x <= strlen(string); x++)
   {
     c = string[x];
     if (isdigit(c))
@@ -710,74 +746,85 @@ boolean str2ip(char *string, byte* IP)
 /********************************************************************************************\
   Save settings to SPIFFS
   \*********************************************************************************************/
-boolean SaveSettings(void)
+String SaveSettings(void)
 {
-  SaveToFile((char*)"config.dat", 0, (byte*)&Settings, sizeof(struct SettingsStruct));
-  return SaveToFile((char*)"security.dat", 0, (byte*)&SecuritySettings, sizeof(struct SecurityStruct));
+  String err;
+  err=SaveToFile((char*)"config.dat", 0, (byte*)&Settings, sizeof(struct SettingsStruct));
+  if (err.length())
+    return(err);
+
+  return(SaveToFile((char*)"security.dat", 0, (byte*)&SecuritySettings, sizeof(struct SecurityStruct)));
 }
 
 
 /********************************************************************************************\
   Load settings from SPIFFS
   \*********************************************************************************************/
-boolean LoadSettings()
+String LoadSettings()
 {
-  LoadFromFile((char*)"config.dat", 0, (byte*)&Settings, sizeof(struct SettingsStruct));
-  LoadFromFile((char*)"security.dat", 0, (byte*)&SecuritySettings, sizeof(struct SecurityStruct));
+  String err;
+  err=LoadFromFile((char*)"config.dat", 0, (byte*)&Settings, sizeof(struct SettingsStruct));
+  if (err.length())
+    return(err);
+
+  return(LoadFromFile((char*)"security.dat", 0, (byte*)&SecuritySettings, sizeof(struct SecurityStruct)));
 }
 
 
 /********************************************************************************************\
   Save Task settings to SPIFFS
   \*********************************************************************************************/
-boolean SaveTaskSettings(byte TaskIndex)
+String SaveTaskSettings(byte TaskIndex)
 {
   ExtraTaskSettings.TaskIndex = TaskIndex;
-  return SaveToFile((char*)"config.dat", DAT_OFFSET_TASKS + (TaskIndex * DAT_TASKS_SIZE), (byte*)&ExtraTaskSettings, sizeof(struct ExtraTaskSettingsStruct));
+  return(SaveToFile((char*)"config.dat", DAT_OFFSET_TASKS + (TaskIndex * DAT_TASKS_SIZE), (byte*)&ExtraTaskSettings, sizeof(struct ExtraTaskSettingsStruct)));
 }
 
 
 /********************************************************************************************\
   Load Task settings from SPIFFS
   \*********************************************************************************************/
-void LoadTaskSettings(byte TaskIndex)
+String LoadTaskSettings(byte TaskIndex)
 {
+  //already loaded
   if (ExtraTaskSettings.TaskIndex == TaskIndex)
-    return;
+    return(String());
 
-  LoadFromFile((char*)"config.dat", DAT_OFFSET_TASKS + (TaskIndex * DAT_TASKS_SIZE), (byte*)&ExtraTaskSettings, sizeof(struct ExtraTaskSettingsStruct));
+  String result = "";
+  result = LoadFromFile((char*)"config.dat", DAT_OFFSET_TASKS + (TaskIndex * DAT_TASKS_SIZE), (byte*)&ExtraTaskSettings, sizeof(struct ExtraTaskSettingsStruct));
   ExtraTaskSettings.TaskIndex = TaskIndex; // Needed when an empty task was requested
+  return result;
 }
 
 
 /********************************************************************************************\
   Save Custom Task settings to SPIFFS
   \*********************************************************************************************/
-boolean SaveCustomTaskSettings(int TaskIndex, byte* memAddress, int datasize)
+String SaveCustomTaskSettings(int TaskIndex, byte* memAddress, int datasize)
 {
   if (datasize > DAT_TASKS_SIZE)
-    return false;
-  return SaveToFile((char*)"config.dat", DAT_OFFSET_TASKS + (TaskIndex * DAT_TASKS_SIZE) + DAT_TASKS_CUSTOM_OFFSET, memAddress, datasize);
+    return F("SaveCustomTaskSettings too big");
+  return(SaveToFile((char*)"config.dat", DAT_OFFSET_TASKS + (TaskIndex * DAT_TASKS_SIZE) + DAT_TASKS_CUSTOM_OFFSET, memAddress, datasize));
 }
 
 
 /********************************************************************************************\
   Load Custom Task settings to SPIFFS
   \*********************************************************************************************/
-void LoadCustomTaskSettings(int TaskIndex, byte* memAddress, int datasize)
+String LoadCustomTaskSettings(int TaskIndex, byte* memAddress, int datasize)
 {
   if (datasize > DAT_TASKS_SIZE)
-    return;
-  LoadFromFile((char*)"config.dat", DAT_OFFSET_TASKS + (TaskIndex * DAT_TASKS_SIZE) + DAT_TASKS_CUSTOM_OFFSET, memAddress, datasize);
+    return (String(F("LoadCustomTaskSettings too big")));
+  return(LoadFromFile((char*)"config.dat", DAT_OFFSET_TASKS + (TaskIndex * DAT_TASKS_SIZE) + DAT_TASKS_CUSTOM_OFFSET, memAddress, datasize));
 }
 
 /********************************************************************************************\
   Save Controller settings to SPIFFS
   \*********************************************************************************************/
-boolean SaveControllerSettings(int ControllerIndex, byte* memAddress, int datasize)
+String SaveControllerSettings(int ControllerIndex, byte* memAddress, int datasize)
 {
   if (datasize > DAT_CONTROLLER_SIZE)
-    return false;
+    return F("SaveControllerSettings too big");
   return SaveToFile((char*)"config.dat", DAT_OFFSET_CONTROLLER + (ControllerIndex * DAT_CONTROLLER_SIZE), memAddress, datasize);
 }
 
@@ -785,20 +832,21 @@ boolean SaveControllerSettings(int ControllerIndex, byte* memAddress, int datasi
 /********************************************************************************************\
   Load Controller settings to SPIFFS
   \*********************************************************************************************/
-void LoadControllerSettings(int ControllerIndex, byte* memAddress, int datasize)
+String LoadControllerSettings(int ControllerIndex, byte* memAddress, int datasize)
 {
   if (datasize > DAT_CONTROLLER_SIZE)
-    return;
-  LoadFromFile((char*)"config.dat", DAT_OFFSET_CONTROLLER + (ControllerIndex * DAT_CONTROLLER_SIZE), memAddress, datasize);
+    return F("LoadControllerSettings too big");
+
+  return(LoadFromFile((char*)"config.dat", DAT_OFFSET_CONTROLLER + (ControllerIndex * DAT_CONTROLLER_SIZE), memAddress, datasize));
 }
 
 /********************************************************************************************\
   Save Custom Controller settings to SPIFFS
   \*********************************************************************************************/
-boolean SaveCustomControllerSettings(int ControllerIndex,byte* memAddress, int datasize)
+String SaveCustomControllerSettings(int ControllerIndex,byte* memAddress, int datasize)
 {
   if (datasize > DAT_CUSTOM_CONTROLLER_SIZE)
-    return false;
+    return F("SaveCustomControllerSettings too big");
   return SaveToFile((char*)"config.dat", DAT_OFFSET_CUSTOM_CONTROLLER + (ControllerIndex * DAT_CUSTOM_CONTROLLER_SIZE), memAddress, datasize);
 }
 
@@ -806,20 +854,20 @@ boolean SaveCustomControllerSettings(int ControllerIndex,byte* memAddress, int d
 /********************************************************************************************\
   Load Custom Controller settings to SPIFFS
   \*********************************************************************************************/
-void LoadCustomControllerSettings(int ControllerIndex,byte* memAddress, int datasize)
+String LoadCustomControllerSettings(int ControllerIndex,byte* memAddress, int datasize)
 {
   if (datasize > DAT_CUSTOM_CONTROLLER_SIZE)
-    return;
-  LoadFromFile((char*)"config.dat", DAT_OFFSET_CUSTOM_CONTROLLER + (ControllerIndex * DAT_CUSTOM_CONTROLLER_SIZE), memAddress, datasize);
+    return(F("LoadCustomControllerSettings too big"));
+  return(LoadFromFile((char*)"config.dat", DAT_OFFSET_CUSTOM_CONTROLLER + (ControllerIndex * DAT_CUSTOM_CONTROLLER_SIZE), memAddress, datasize));
 }
 
 /********************************************************************************************\
   Save Controller settings to SPIFFS
   \*********************************************************************************************/
-boolean SaveNotificationSettings(int NotificationIndex, byte* memAddress, int datasize)
+String SaveNotificationSettings(int NotificationIndex, byte* memAddress, int datasize)
 {
   if (datasize > DAT_NOTIFICATION_SIZE)
-    return false;
+    return F("SaveNotificationSettings too big");
   return SaveToFile((char*)"notification.dat", NotificationIndex * DAT_NOTIFICATION_SIZE, memAddress, datasize);
 }
 
@@ -827,64 +875,89 @@ boolean SaveNotificationSettings(int NotificationIndex, byte* memAddress, int da
 /********************************************************************************************\
   Load Controller settings to SPIFFS
   \*********************************************************************************************/
-void LoadNotificationSettings(int NotificationIndex, byte* memAddress, int datasize)
+String LoadNotificationSettings(int NotificationIndex, byte* memAddress, int datasize)
 {
   if (datasize > DAT_NOTIFICATION_SIZE)
-    return;
-  LoadFromFile((char*)"notification.dat", NotificationIndex * DAT_NOTIFICATION_SIZE, memAddress, datasize);
+    return(F("LoadNotificationSettings too big"));
+  return(LoadFromFile((char*)"notification.dat", NotificationIndex * DAT_NOTIFICATION_SIZE, memAddress, datasize));
+}
+
+
+
+
+/********************************************************************************************\
+  Init a file with zeros on SPIFFS
+  \*********************************************************************************************/
+String InitFile(const char* fname, int datasize)
+{
+
+  FLASH_GUARD();
+
+  fs::File f = SPIFFS.open(fname, "w");
+  SPIFFS_CHECK(f, fname);
+
+  for (int x = 0; x < datasize ; x++)
+  {
+    SPIFFS_CHECK(f.write(0), fname);
+  }
+  f.close();
+
+  //OK
+  return String();
 }
 
 /********************************************************************************************\
   Save data into config file on SPIFFS
   \*********************************************************************************************/
-boolean SaveToFile(char* fname, int index, byte* memAddress, int datasize)
+String SaveToFile(char* fname, int index, byte* memAddress, int datasize)
 {
-  boolean success = false;
 
-  if (RTC.flashDayCounter > MAX_FLASHWRITES_PER_DAY)
-  {
-    String log = F("FS   : Daily flash write rate exceeded! (powercycle to reset this)");
-    addLog(LOG_LEVEL_ERROR, log);
-    return false;
-  }
+  FLASH_GUARD();
 
   fs::File f = SPIFFS.open(fname, "r+");
-  if (f)
+  SPIFFS_CHECK(f, fname);
+
+  SPIFFS_CHECK(f.seek(index, fs::SeekSet), fname);
+  byte *pointerToByteToSave = memAddress;
+  for (int x = 0; x < datasize ; x++)
   {
-    f.seek(index, fs::SeekSet);
-    byte *pointerToByteToSave = memAddress;
-    for (int x = 0; x < datasize ; x++)
-    {
-      f.write(*pointerToByteToSave);
-      pointerToByteToSave++;
-    }
-    f.close();
-    String log = F("FILE : File saved");
-    addLog(LOG_LEVEL_INFO, log);
-    success = true;
-    flashCount();
+    SPIFFS_CHECK(f.write(*pointerToByteToSave), fname);
+    pointerToByteToSave++;
   }
-  return success;
+  f.close();
+  String log = F("FILE : Saved ");
+  log=log+fname;
+  addLog(LOG_LEVEL_INFO, log);
+
+  //OK
+  return String();
 }
 
 
 /********************************************************************************************\
   Load data from config file on SPIFFS
   \*********************************************************************************************/
-void LoadFromFile(char* fname, int index, byte* memAddress, int datasize)
+String LoadFromFile(char* fname, int index, byte* memAddress, int datasize)
 {
+  // addLog(LOG_LEVEL_INFO, String(F("FILE : Load size "))+datasize);
+
   fs::File f = SPIFFS.open(fname, "r+");
-  if (f)
+  SPIFFS_CHECK(f, fname);
+
+  // addLog(LOG_LEVEL_INFO, String(F("FILE : File size "))+f.size());
+
+  SPIFFS_CHECK(f.seek(index, fs::SeekSet), fname);
+  byte *pointerToByteToRead = memAddress;
+  for (int x = 0; x < datasize; x++)
   {
-    f.seek(index, fs::SeekSet);
-    byte *pointerToByteToRead = memAddress;
-    for (int x = 0; x < datasize; x++)
-    {
-      *pointerToByteToRead = f.read();
-      pointerToByteToRead++;// next byte
-    }
-    f.close();
+    int readres=f.read();
+    SPIFFS_CHECK(readres >=0, fname);
+    *pointerToByteToRead = readres;
+    pointerToByteToRead++;// next byte
   }
+  f.close();
+
+  return(String());
 }
 
 
@@ -912,7 +985,7 @@ void ResetFactory(void)
   {
     Serial.print(F("RESET: Warm boot, reset count: "));
     Serial.println(RTC.factoryResetCounter);
-    if (RTC.factoryResetCounter > 3)
+    if (RTC.factoryResetCounter >= 3)
     {
       Serial.println(F("RESET: Too many resets, protecting your flash memory (powercycle to solve this)"));
       return;
@@ -924,6 +997,7 @@ void ResetFactory(void)
     initRTC();
   }
 
+  RTC.flashCounter=0; //reset flashcounter, since we're already counting the number of factory-resets. we dont want to hit a flash-count limit during reset.
   RTC.factoryResetCounter++;
   saveToRTC();
 
@@ -939,31 +1013,20 @@ void ResetFactory(void)
   }
 
 
-  fs::File f = SPIFFS.open("config.dat", "w");
-  if (f)
-  {
-    for (int x = 0; x < 65536; x++)
-      f.write(0);
-    f.close();
-  }
+  //pad files with extra zeros for future extensions
+  String fname;
 
-  f = SPIFFS.open("security.dat", "w");
-  if (f)
-  {
-    for (int x = 0; x < 512; x++)
-      f.write(0);
-    f.close();
-  }
+  fname=F("config.dat");
+  InitFile(fname.c_str(), 65536);
 
-  f = SPIFFS.open("notification.dat", "w");
-  if (f)
-  {
-    for (int x = 0; x < 4096; x++)
-      f.write(0);
-    f.close();
-  }
-  f = SPIFFS.open("rules1.txt", "w");
-  f.close();
+  fname=F("security.dat");
+  InitFile(fname.c_str(), 4096);
+
+  fname=F("notification.dat");
+  InitFile(fname.c_str(), 4096);
+
+  fname=F("rules1.txt");
+  InitFile(fname.c_str(), 0);
 
   LoadSettings();
   // now we set all parameters that need to be non-zero as default value
@@ -1287,7 +1350,7 @@ unsigned long string2TimeLong(String &str)
     for (x = strlen(TmpStr1) - 1; x >= 0; x--)
     {
       w = TmpStr1[x];
-      if (w >= '0' && w <= '9' || w == '*')
+      if ( (w >= '0' && w <= '9') || w == '*')
       {
         a = 0xffffffff  ^ (0xfUL << y); // create mask to clean nibble position y
         lngTime &= a; // maak nibble leeg
@@ -1297,7 +1360,8 @@ unsigned long string2TimeLong(String &str)
           lngTime |= (w - '0') << y; // fill nibble with token
         y += 4;
       }
-      else if (w == ':');
+      else
+        if (w == ':');
       else
       {
         break;
@@ -1378,6 +1442,34 @@ String getDateString(char delimiter)
   return reply;
 }
 
+String getDayString()
+{
+  String reply;
+  if (day() < 10)
+    reply += F("0");
+  reply += day();
+  return reply;
+}
+String getMonthString()
+{
+  String reply;
+  if (month() < 10)
+    reply += F("0");
+  reply += month();
+  return reply;
+}
+String getYearString()
+{
+  String reply = String(year());
+  return reply;
+}
+String getYearStringShort()
+{
+  String dummy = String(year());
+  String reply = dummy.substring(2);
+  return reply;
+}
+
 // returns the current Date without delimiter
 // date format example: 20161231 (YYYYMMDD)
 String getDateString()
@@ -1402,6 +1494,31 @@ String getTimeString(char delimiter)
   	reply += delimiter;
   if (second() < 10)
   	reply += F("0");
+  reply += second();
+  return reply;
+}
+
+String getHourString()
+{
+  String reply;
+  if (hour() < 10)
+    reply += F("0");
+  reply += String(hour());
+  return reply;
+}
+String getMinuteString()
+{
+  String reply;
+  if (minute() < 10)
+    reply += F("0");
+  reply += minute();
+  return reply;
+}
+String getSecondString()
+{
+  String reply;
+  if (second() < 10)
+    reply += F("0");
   reply += second();
   return reply;
 }
@@ -1506,10 +1623,12 @@ String parseTemplate(String &tmpString, byte lineSize)
           {
             if (deviceName.equalsIgnoreCase(ExtraTaskSettings.TaskDeviceName))
             {
+              boolean match = false;
               for (byte z = 0; z < VARS_PER_TASK; z++)
                 if (valueName.equalsIgnoreCase(ExtraTaskSettings.TaskDeviceValueNames[z]))
                 {
                   // here we know the task and value, so find the uservar
+                  match = true;
                   String value = "";
                   byte DeviceIndex = getDeviceIndex(Settings.TaskDeviceNumber[y]);
                   if (Device[DeviceIndex].VType == SENSOR_TYPE_LONG)
@@ -1526,6 +1645,14 @@ String parseTemplate(String &tmpString, byte lineSize)
                   newString += String(value);
                   break;
                 }
+              if (!match) // try if this is a get config request
+              {
+                struct EventStruct TempEvent;
+                TempEvent.TaskIndex = y;
+                String tmpName = valueName;
+                if (PluginCall(PLUGIN_GET_CONFIG, &TempEvent, tmpName))
+                  newString += tmpName;
+              }
               break;
             }
           }
@@ -1542,6 +1669,14 @@ String parseTemplate(String &tmpString, byte lineSize)
   newString.replace(F("%sysname%"), Settings.Name);
 
   newString.replace(F("%systime%"), getTimeString(':'));
+
+  newString.replace(F("%syshour%"), getHourString());
+  newString.replace(F("%sysmin%"), getMinuteString());
+  newString.replace(F("%syssec%"), getSecondString());
+  newString.replace(F("%sysday%"), getDayString());
+  newString.replace(F("%sysmonth%"), getMonthString());
+  newString.replace(F("%sysyear%"), getYearString());
+  newString.replace(F("%sysyears%"), getYearStringShort());
 
   newString.replace(F("%uptime%"), String(wdcounter / 2));
 
@@ -1596,6 +1731,8 @@ float pop()
 {
   if (sp != (globalstack - 1)) // empty
     return *(sp--);
+  else
+    return 0.0;
 }
 
 float apply_operator(char op, float first, float second)
@@ -1629,7 +1766,7 @@ int RPNCalculate(char* token)
   if (token[0] == 0)
     return 0; // geen moeite doen voor een lege string
 
-  if (is_operator(token[0]))
+  if (is_operator(token[0]) && token[1] == 0)
   {
     float second = pop();
     float first = pop();
@@ -1700,7 +1837,7 @@ int Calculate(const char *input, float* result)
 {
   const char *strpos = input, *strend = input + strlen(input);
   char token[25];
-  char c, *TokenPos = token;
+  char c, oc, *TokenPos = token;
   char stack[32];       // operator stack
   unsigned int sl = 0;  // stack length
   char     sc;          // used for record stack element
@@ -1708,15 +1845,16 @@ int Calculate(const char *input, float* result)
 
   //*sp=0; // bug, it stops calculating after 50 times
   sp = globalstack - 1;
-
+  oc=c=0;
   while (strpos < strend)
   {
     // read one token from the input stream
+    oc = c;
     c = *strpos;
     if (c != ' ')
     {
       // If the token is a number (identifier), then add it to the token queue.
-      if ((c >= '0' && c <= '9') || c == '.')
+      if ((c >= '0' && c <= '9') || c == '.' || (c == '-' && is_operator(oc)))
       {
         *TokenPos = c;
         ++TokenPos;
@@ -2105,14 +2243,13 @@ void rulesProcessing(String& event)
 /********************************************************************************************\
   Rules processing
   \*********************************************************************************************/
-void rulesProcessingFile(String fileName, String& event)
+String rulesProcessingFile(String fileName, String& event)
 {
   fs::File f = SPIFFS.open(fileName, "r+");
-  if (!f)
-    return;
+  SPIFFS_CHECK(f, fileName.c_str());
 
   static byte nestingLevel;
-  char data = 0;
+  int data = 0;
   String log = "";
 
   nestingLevel++;
@@ -2121,11 +2258,11 @@ void rulesProcessingFile(String fileName, String& event)
     log = F("EVENT: Error: Nesting level exceeded!");
     addLog(LOG_LEVEL_ERROR, log);
     nestingLevel--;
-    return;
+    return(log);
   }
 
 
-  int pos = 0;
+  // int pos = 0;
   String line = "";
   boolean match = false;
   boolean codeBlock = false;
@@ -2137,8 +2274,11 @@ void rulesProcessingFile(String fileName, String& event)
   while (f.available())
   {
     data = f.read();
+
+    SPIFFS_CHECK(data >= 0, fileName.c_str());
+
     if (data != 10)
-      line += data;
+      line += char(data);
 
     if (data == 10)    // if line complete, parse this rule
     {
@@ -2228,11 +2368,18 @@ void rulesProcessingFile(String fileName, String& event)
           // process the action if it's a command and unconditional, or conditional and the condition matches the if or else block.
           if (isCommand && ((!conditional) || (conditional && (condition == ifBranche))))
           {
-            int equalsPos = event.indexOf("=");
-            if (equalsPos > 0)
+            if (event.charAt(0) == '!')
             {
-              String tmpString = event.substring(equalsPos + 1);
-              action.replace(F("%eventvalue%"), tmpString); // substitute %eventvalue% in actions with the actual value from the event
+              action.replace(F("%eventvalue%"), event); // substitute %eventvalue% with literal event string if starting with '!'
+            }
+            else
+            {
+              int equalsPos = event.indexOf("=");
+              if (equalsPos > 0)
+              {
+                String tmpString = event.substring(equalsPos + 1);
+                action.replace(F("%eventvalue%"), tmpString); // substitute %eventvalue% in actions with the actual value from the event
+              }
             }
             log = F("ACT  : ");
             log += action;
@@ -2254,7 +2401,7 @@ void rulesProcessingFile(String fileName, String& event)
   }
 
   nestingLevel--;
-
+  return(String());
 }
 
 
@@ -2486,19 +2633,55 @@ void createRuleEvents(byte TaskIndex)
   }
 }
 
-<<<<<<< HEAD:src/Misc.ino
-void checkRAM(byte id)
+
+void SendValueLogger(byte TaskIndex)
+{
+  String logger;
+
+  LoadTaskSettings(TaskIndex);
+  byte BaseVarIndex = TaskIndex * VARS_PER_TASK;
+  byte DeviceIndex = getDeviceIndex(Settings.TaskDeviceNumber[TaskIndex]);
+  byte sensorType = Device[DeviceIndex].VType;
+  for (byte varNr = 0; varNr < Device[DeviceIndex].ValueCount; varNr++)
+  {
+    logger += getDateString('-');
+    logger += F(" ");
+    logger += getTimeString(':');
+    logger += F(",");
+    logger += Settings.Unit;
+    logger += F(",");
+    logger += ExtraTaskSettings.TaskDeviceName;
+    logger += F(",");
+    logger += ExtraTaskSettings.TaskDeviceValueNames[varNr];
+    logger += F(",");
+
+    if (sensorType == SENSOR_TYPE_LONG)
+      logger += (unsigned long)UserVar[BaseVarIndex] + ((unsigned long)UserVar[BaseVarIndex + 1] << 16);
+    else
+      logger += String(UserVar[BaseVarIndex + varNr], ExtraTaskSettings.TaskDeviceValueDecimals[varNr]);
+    logger += F("\r\n");
+  }
+
+  addLog(LOG_LEVEL_DEBUG, logger);
+
+  String filename = F("VALUES.CSV");
+  File logFile = SD.open(filename, FILE_WRITE);
+  if (logFile)
+    logFile.print(logger);
+  logFile.close();
+}
+
+
+void checkRAM( const __FlashStringHelper* flashString)
 {
   uint16_t freeRAM = FreeMem();
 
   if (freeRAM < lowestRAM)
   {
     lowestRAM = freeRAM;
-    lowestRAMid = id;
+    lowestRAMfunction = flashString;
   }
 }
-=======
->>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:Misc.ino
 
 #ifdef PLUGIN_BUILD_TESTING
 
@@ -2509,10 +2692,7 @@ void checkRAM(byte id)
   \*********************************************************************************************/
 void tone(uint8_t _pin, unsigned int frequency, unsigned long duration) {
   analogWriteFreq(frequency);
-<<<<<<< HEAD:src/Misc.ino
   //NOTE: analogwrite reserves IRAM and uninitalized ram.
-=======
->>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:Misc.ino
   analogWrite(_pin,100);
   delay(duration);
   analogWrite(_pin,0);
@@ -2676,7 +2856,6 @@ void play_rtttl(uint8_t _pin, char *p )
 }
 
 #endif
-<<<<<<< HEAD:src/Misc.ino
 
 
 #ifdef FEATURE_ARDUINO_OTA
@@ -2765,5 +2944,20 @@ void htmlEscape(String & html)
   html.replace("<",  "&lt;");
   html.replace(">",  "&gt;");
 }
-=======
->>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:Misc.ino
+
+
+// Compute the dew point temperature, given temperature and humidity (temp in Celcius)
+// Formula: http://www.ajdesigner.com/phphumidity/dewpoint_equation_dewpoint_temperature.php
+// Td = (f/100)^(1/8) * (112 + 0.9*T) + 0.1*T - 112
+float compute_dew_point_temp(float temperature, float humidity_percentage) {
+  return pow(humidity_percentage / 100.0, 0.125) *
+         (112.0 + 0.9*temperature) + 0.1*temperature - 112.0;
+}
+
+// Compute the humidity given temperature and dew point temperature (temp in Celcius)
+// Formula: http://www.ajdesigner.com/phphumidity/dewpoint_equation_relative_humidity.php
+// f = 100 * ((112 - 0.1*T + Td) / (112 + 0.9 * T))^8
+float compute_humidity_from_dewpoint(float temperature, float dew_temperature) {
+  return 100.0 * pow((112.0 - 0.1 * temperature + dew_temperature) /
+                     (112.0 + 0.9 * temperature), 8);
+}

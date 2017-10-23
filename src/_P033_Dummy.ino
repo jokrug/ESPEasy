@@ -69,7 +69,7 @@ boolean Plugin_033(byte function, struct EventStruct *event, String& string)
         optionValues[8] = SENSOR_TYPE_DIMMER;
         optionValues[9] = SENSOR_TYPE_LONG;
         optionValues[10] = SENSOR_TYPE_WIND;
-        
+
         addFormSelector(string, F("Simulate Data Type"), F("plugin_033_sensortype"), 11, options, optionValues, choice );
 
         success = true;
@@ -95,6 +95,25 @@ boolean Plugin_033(byte function, struct EventStruct *event, String& string)
           addLog(LOG_LEVEL_INFO,log);
         }
         success = true;
+        break;
+      }
+    case PLUGIN_WRITE:
+      {
+        String tmpString  = string;
+        int argIndex = tmpString.indexOf(',');
+        if (argIndex)
+          tmpString = tmpString.substring(0, argIndex);
+        Serial.println(tmpString);
+        if (tmpString.equalsIgnoreCase(F("dummysetvalue")))
+        {
+          success = true;
+          argIndex = string.lastIndexOf(',');
+          tmpString = string.substring(argIndex + 1);
+          for(int i=0; i<4; i++)
+          {
+
+          }
+        }
         break;
       }
   }

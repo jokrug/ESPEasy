@@ -2,7 +2,7 @@ char* ramtest;
 
 //Reads a string from a stream until a terminator-character.
 //We make sure we're not reading more than maxSize bytes and we're not busy for longer than timeout mS.
-bool safeReadStringUntil(Stream &input, String &str, char terminator, int maxSize=1024, int timeout=1000)
+bool safeReadStringUntil(Stream &input, String &str, char terminator, unsigned int maxSize=1024, unsigned int timeout=1000)
 {
     unsigned long startMillis;
     int c;
@@ -53,6 +53,10 @@ void ExecuteCommand(byte source, const char *Line)
   int Par2 = 0;
   int Par3 = 0;
 
+  String log = F("EXEC  : ");
+  log += String(Line);
+  addLog(LOG_LEVEL_INFO, log);
+
   GetArgv(Line, Command, 1);
   if (GetArgv(Line, TmpStr1, 2)) Par1 = str2int(TmpStr1);
   if (GetArgv(Line, TmpStr1, 3)) Par2 = str2int(TmpStr1);
@@ -100,11 +104,14 @@ void ExecuteCommand(byte source, const char *Line)
     {
       if (Settings.NotificationEnabled[Par1 - 1] && Settings.Notification[Par1 - 1] != 0)
       {
-        byte NotificationProtocolIndex = getNotificationIndex(Settings.Notification[Par1 - 1]);
-        struct EventStruct TempEvent;
-        TempEvent.NotificationProtocolIndex = Par1 - 1;
-        if (NPlugin_id[NotificationProtocolIndex] != 0)
+        byte NotificationProtocolIndex = getNotificationProtocolIndex(Settings.Notification[Par1 - 1]);
+        if (NotificationProtocolIndex!=NPLUGIN_NOT_FOUND)
+        {
+          struct EventStruct TempEvent;
+          // TempEvent.NotificationProtocolIndex = NotificationProtocolIndex;
+          TempEvent.NotificationIndex=Par1-1;
           NPlugin_ptr[NotificationProtocolIndex](NPLUGIN_NOTIFY, &TempEvent, message);
+        }
       }
     }
   }
@@ -149,7 +156,7 @@ void ExecuteCommand(byte source, const char *Line)
   {
     Serial.print(lowestRAM);
     Serial.print(F(" : "));
-    Serial.println(lowestRAMid);
+    Serial.println(lowestRAMfunction);
     success = true;
   }
 
@@ -259,6 +266,14 @@ void ExecuteCommand(byte source, const char *Line)
   // commands for rules
   // ****************************************
 
+  if (strcasecmp_P(Command, PSTR("config")) == 0)
+  {
+    success = true;
+    struct EventStruct TempEvent;
+    String request = Line;
+    remoteConfig(&TempEvent, request);
+  }
+
   if (strcasecmp_P(Command, PSTR("deepSleep")) == 0)
   {
     success = true;
@@ -272,7 +287,7 @@ void ExecuteCommand(byte source, const char *Line)
     if (GetArgv(Line, TmpStr1, 4))
     {
       float result = 0;
-      byte error = Calculate(TmpStr1, &result);
+      Calculate(TmpStr1, &result);
       UserVar[(VARS_PER_TASK * (Par1 - 1)) + Par2 - 1] = result;
     }
   }
@@ -365,8 +380,10 @@ void ExecuteCommand(byte source, const char *Line)
     str2ip((char*)ip.c_str(), ipaddress);
     IPAddress UDP_IP(ipaddress[0], ipaddress[1], ipaddress[2], ipaddress[3]);
     portUDP.beginPacket(UDP_IP, port.toInt());
-    portUDP.write(message.c_str(), message.length());
+    portUDP.write(message.c_str());
     portUDP.endPacket();
+    String dbg = "SendToUDP: " + message;
+    addLog(LOG_LEVEL_DEBUG, dbg);
   }
 
   if (strcasecmp_P(Command, PSTR("SendToHTTP")) == 0)
@@ -403,38 +420,6 @@ void ExecuteCommand(byte source, const char *Line)
     }
   }
 
-#ifdef PLUGIN_BUILD_TESTING
-  // ****************************************
-  // special commands for Blynk
-  // ****************************************
-
-  if (strcasecmp(Command, "BlynkGet") == 0)
-  {
-    String event = Line;
-    event = event.substring(9);
-    int index = event.indexOf(',');
-    if (index > 0)
-    {
-      int index = event.lastIndexOf(',');
-      String blynkcommand = event.substring(index+1);
-      float value = 0;
-      if (Blynk_get(blynkcommand, &value))
-      {
-        UserVar[(VARS_PER_TASK * (Par1 - 1)) + Par2 - 1] = value;
-      }
-      else
-        status = F("Error getting data");
-    }
-    else
-    {
-      if (!Blynk_get(event))
-      {
-        status = F("Error getting data");
-      }
-    }
-
-  }
-#endif
 
   // ****************************************
   // configure settings commands
@@ -481,16 +466,31 @@ void ExecuteCommand(byte source, const char *Line)
     WifiDisconnect();
   }
 
-<<<<<<< HEAD:src/Command.ino
   if (strcasecmp_P(Command, PSTR("WifiAPMode")) == 0)
   {
     WifiAPMode(true);
     success = true;
   }
 
+  if (strcasecmp_P(Command, PSTR("Unit")) == 0)
+  {
+    success = true;
+    Settings.Unit=Par1;
+  }
 
-=======
->>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:Command.ino
+  if (strcasecmp_P(Command, PSTR("Name")) == 0)
+  {
+    success = true;
+    strcpy(Settings.Name, Line + 5);
+  }
+
+  if (strcasecmp_P(Command, PSTR("Password")) == 0)
+  {
+    success = true;
+    strcpy(SecuritySettings.Password, Line + 9);
+  }
+
+
   if (strcasecmp_P(Command, PSTR("Reboot")) == 0)
   {
     success = true;
@@ -556,6 +556,7 @@ void ExecuteCommand(byte source, const char *Line)
     sprintf_P(str, PSTR("%u.%u.%u.%u"), ip[0], ip[1], ip[2], ip[3]);
     Serial.print(F("  IP Address    : ")); Serial.println(str);
     Serial.print(F("  Build         : ")); Serial.println((int)BUILD);
+    Serial.print(F("  Name          : ")); Serial.println(Settings.Name);
     Serial.print(F("  Unit          : ")); Serial.println((int)Settings.Unit);
     Serial.print(F("  WifiSSID      : ")); Serial.println(SecuritySettings.WifiSSID);
     Serial.print(F("  WifiKey       : ")); Serial.println(SecuritySettings.WifiKey);
@@ -573,7 +574,6 @@ void ExecuteCommand(byte source, const char *Line)
   SendStatus(source, status);
   yield();
 }
-<<<<<<< HEAD:src/Command.ino
 
 void printDirectory(File dir, int numTabs) {
   while (true) {
@@ -598,5 +598,3 @@ void printDirectory(File dir, int numTabs) {
     entry.close();
   }
 }
-=======
->>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:Command.ino

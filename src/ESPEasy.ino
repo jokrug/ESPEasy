@@ -1,3 +1,9 @@
+#ifdef CONTINUOUS_INTEGRATION
+#pragma GCC diagnostic error "-Wall"
+#else
+#pragma GCC diagnostic warning "-Wall"
+#endif
+
 /****************************************************************************************************************************\
  * Arduino project "ESP Easy" © Copyright www.letscontrolit.com
  *
@@ -73,7 +79,7 @@
 // You can always change these during runtime and save to eeprom
 // After loading firmware, issue a 'reset' command to load the defaults.
 
-#define DEFAULT_NAME        "newdevice"         // Enter your device friendly name
+#define DEFAULT_NAME        "ESP_Easy"         // Enter your device friendly name
 #define DEFAULT_SSID        "ssid"              // Enter your network SSID
 #define DEFAULT_KEY         "wpakey"            // Enter your network WPA key
 #define DEFAULT_DELAY       60                  // Enter your Send delay in seconds
@@ -92,7 +98,7 @@
 #define DEFAULT_SERVER      "192.168.0.8"       // Enter your Server IP address
 #define DEFAULT_PORT        8080                // Enter your Server port value
 
-#define DEFAULT_PROTOCOL    9                   // Protocol used for controller communications
+#define DEFAULT_PROTOCOL    1                   // Protocol used for controller communications
 //   1 = Domoticz HTTP
 //   2 = Domoticz MQTT
 //   3 = Nodo Telnet
@@ -115,6 +121,9 @@
 //Note: This adds around 10kb to the firmware size, and 1kb extra ram.
 // #define FEATURE_ARDUINO_OTA
 
+//enable mDNS mode (adds about 6kb ram and some bytes IRAM)
+// #define FEATURE_MDNS
+
 
 //enable reporting status to ESPEasy developers.
 //this informs us of crashes and stability issues.
@@ -127,14 +136,14 @@
 //If you dont select any, a version with a minimal number of plugins will be biult for 512k versions.
 //(512k is NOT finsihed or tested yet as of v2.0.0-dev6)
 
-//build all the normal stable plugins
+//build all the normal stable plugins (on by default)
 //#define PLUGIN_BUILD_NORMAL
 
 //build all plugins that are in test stadium
 //#define PLUGIN_BUILD_TESTING
 
 //build all plugins that still are being developed and are broken or incomplete
-//#define PLUGIN_BUILD_DEV
+#define PLUGIN_BUILD_DEV
 
 // ********************************************************************************
 //   DO NOT CHANGE ANYTHING BELOW THIS LINE
@@ -177,7 +186,10 @@
 #define PLUGIN_CLOCK_IN                    18
 #define PLUGIN_TIMER_IN                    19
 #define PLUGIN_FIFTY_PER_SECOND            20
-#define PLUGIN_REMOTE_CONFIG               21
+#define PLUGIN_SET_CONFIG                  21
+#define PLUGIN_GET_DEVICEGPIONAMES         22
+#define PLUGIN_EXIT                        23
+#define PLUGIN_GET_CONFIG                  24
 
 #define CPLUGIN_PROTOCOL_ADD                1
 #define CPLUGIN_PROTOCOL_TEMPLATE           2
@@ -193,17 +205,20 @@
 #define NPLUGIN_WEBFORM_LOAD                4
 #define NPLUGIN_WRITE                       5
 #define NPLUGIN_NOTIFY                      6
+#define NPLUGIN_NOT_FOUND                 255
+
 
 #define LOG_LEVEL_ERROR                     1
 #define LOG_LEVEL_INFO                      2
 #define LOG_LEVEL_DEBUG                     3
 #define LOG_LEVEL_DEBUG_MORE                4
+#define LOG_LEVEL_DEBUG_DEV                 9 // use for testing/debugging only, not for regular use
 
 #define CMD_REBOOT                         89
 #define CMD_WIFI_DISCONNECT               135
 
 #if defined(PLUGIN_BUILD_TESTING) || defined(PLUGIN_BUILD_DEV)
-  #define DEVICES_MAX                      72
+  #define DEVICES_MAX                      75
 #else
   #define DEVICES_MAX                      64
 #endif
@@ -256,29 +271,6 @@
 #define SENSOR_TYPE_DIMMER                 11
 #define SENSOR_TYPE_LONG                   20
 #define SENSOR_TYPE_WIND                   21
-<<<<<<< HEAD:src/ESPEasy.ino
-=======
-
-#define PLUGIN_INIT_ALL                     1
-#define PLUGIN_INIT                         2
-#define PLUGIN_READ                         3
-#define PLUGIN_ONCE_A_SECOND                4
-#define PLUGIN_TEN_PER_SECOND               5
-#define PLUGIN_DEVICE_ADD                   6
-#define PLUGIN_EVENTLIST_ADD                7
-#define PLUGIN_WEBFORM_SAVE                 8
-#define PLUGIN_WEBFORM_LOAD                 9
-#define PLUGIN_WEBFORM_SHOW_VALUES         10
-#define PLUGIN_GET_DEVICENAME              11
-#define PLUGIN_GET_DEVICEVALUENAMES        12
-#define PLUGIN_WRITE                       13
-#define PLUGIN_EVENT_OUT                   14
-#define PLUGIN_WEBFORM_SHOW_CONFIG         15
-#define PLUGIN_SERIAL_IN                   16
-#define PLUGIN_UDP_IN                      17
-#define PLUGIN_CLOCK_IN                    18
-#define PLUGIN_TIMER_IN                    19
->>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:ESPEasy.ino
 
 #define VALUE_SOURCE_SYSTEM                 1
 #define VALUE_SOURCE_SERIAL                 2
@@ -291,7 +283,6 @@
 #define BOOT_CAUSE_DEEP_SLEEP               2
 #define BOOT_CAUSE_EXT_WD                  10
 
-<<<<<<< HEAD:src/ESPEasy.ino
 #define DAT_TASKS_SIZE                   2048
 #define DAT_TASKS_CUSTOM_OFFSET          1024
 #define DAT_CUSTOM_CONTROLLER_SIZE       1024
@@ -302,14 +293,16 @@
 #define DAT_OFFSET_CONTROLLER           28672  // each controller = 1k, 4 max
 #define DAT_OFFSET_CUSTOM_CONTROLLER    32768  // each custom controller config = 1k, 4 max.
 
+
 #include "lwip/tcp_impl.h"
-=======
-#include "Version.h"
->>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:ESPEasy.ino
 #include <ESP8266WiFi.h>
 #include <DNSServer.h>
 #include <WiFiUdp.h>
 #include <ESP8266WebServer.h>
+#ifdef FEATURE_MDNS
+#include <ESP8266mDNS.h>
+#endif
+
 #include <Wire.h>
 #include <SPI.h>
 #include <PubSubClient.h>
@@ -350,7 +343,9 @@ bool ArduinoOTAtriggered=false;
 const byte DNS_PORT = 53;
 IPAddress apIP(192, 168, 4, 1);
 DNSServer dnsServer;
-
+#ifdef FEATURE_MDNS
+MDNSResponder mdns;
+#endif
 
 // MQTT client
 WiFiClient mqtt;
@@ -382,7 +377,7 @@ struct SecurityStruct
   char          ControllerUser[CONTROLLER_MAX][26];
   char          ControllerPassword[CONTROLLER_MAX][64];
   char          Password[26];
-  //its safe to extend this struct, up to 512 bytes, default values in config are 0
+  //its safe to extend this struct, up to 4096 bytes, default values in config are 0
 } SecuritySettings;
 
 struct SettingsStruct
@@ -426,9 +421,8 @@ struct SettingsStruct
   int16_t       TimeZone;
   boolean       MQTTRetainFlag;
   boolean       InitSPI;
-<<<<<<< HEAD:src/ESPEasy.ino
   byte          Protocol[CONTROLLER_MAX];
-  byte          Notification[NOTIFICATION_MAX];
+  byte          Notification[NOTIFICATION_MAX]; //notifications, point to a NPLUGIN id
   byte          TaskDeviceNumber[TASKS_MAX];
   unsigned int  OLD_TaskDeviceID[TASKS_MAX];
   union {
@@ -456,9 +450,10 @@ struct SettingsStruct
   boolean       TaskDeviceSendData[CONTROLLER_MAX][TASKS_MAX];
   boolean       Pin_status_led_Inversed;
   boolean       deepSleepOnFail;
-  //its safe to extend this struct, up to 65535 bytes, default values in config are 0
-=======
->>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:ESPEasy.ino
+  boolean       UseValueLogger;
+  //its safe to extend this struct, up to several bytes, default values in config are 0
+  //look in misc.ino how config.dat is used because also other stuff is stored in it at different offsets.
+  //TODO: document config.dat somewhere here
 } Settings;
 
 struct ControllerSettingsStruct
@@ -503,7 +498,8 @@ struct EventStruct
   byte ControllerIndex; // index position in Settings.Controller, 0-3
   byte ProtocolIndex; // index position in protocol array, depending on which controller plugins are loaded.
   byte NotificationIndex; // index position in Settings.Notification, 0-3
-  byte NotificationProtocolIndex; // index position in notification array, depending on which controller plugins are loaded.
+  //Edwin: Not needed, and wasnt used. We can determine the protocol index with getNotificationProtocolIndex(NotificationIndex)
+  // byte NotificationProtocolIndex; // index position in notification array, depending on which controller plugins are loaded.
   byte BaseVarIndex;
   int idx;
   byte sensorType;
@@ -515,6 +511,7 @@ struct EventStruct
   byte OriginTaskIndex;
   String String1;
   String String2;
+  String String3;
   byte *Data;
 };
 
@@ -630,6 +627,7 @@ unsigned long timer20ms;
 unsigned long timer1s;
 unsigned long timerwd;
 unsigned long lastSend;
+unsigned long lastWeb;
 unsigned int NC_Count = 0;
 unsigned int C_Count = 0;
 byte cmd_within_mainloop = 0;
@@ -670,24 +668,8 @@ unsigned long dailyResetCounter = 0;
 
 String eventBuffer = "";
 
-<<<<<<< HEAD:src/ESPEasy.ino
 uint16_t lowestRAM = 0;
-byte lowestRAMid=0;
-/*
-1 savetoflash - obsolete
-2 loadfrom flash - obsolete
-3 zerofillflash - obsolete
-4 rulesprocessing
-5 handle_download
-6 handle_css
-7 handlefileupload
-8 handle_rules
-9 handle_devices
-*/
-=======
-// Blynk_get prototype
-boolean Blynk_get(String command,float *data = NULL );
->>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:ESPEasy.ino
+String lowestRAMfunction = "";
 
 /*********************************************************************************************\
  * SETUP
@@ -776,7 +758,11 @@ void setup()
   }
 
   if (Settings.UseSerial)
+  {
+    //make sure previous serial buffers are flushed before resetting baudrate
+    Serial.flush();
     Serial.begin(Settings.BaudRate);
+  }
 
   if (Settings.Build != BUILD)
     BuildFixes();
@@ -839,28 +825,10 @@ void setup()
   if (Settings.UDPPort != 0)
     portUDP.begin(Settings.UDPPort);
 
-<<<<<<< HEAD:src/ESPEasy.ino
   // Setup MQTT Client
   byte ProtocolIndex = getProtocolIndex(Settings.Protocol[0]);
   if (Protocol[ProtocolIndex].usesMQTT && Settings.ControllerEnabled[0])
     MQTTConnect();
-=======
-    // Setup timers
-    if (bootMode == 0)
-    {
-      for (byte x = 0; x < TASKS_MAX; x++)
-        if (Settings.TaskDeviceTimer[x] !=0)
-          timerSensor[x] = millis() + 30000 + (x * Settings.MessageDelay);
-
-      timer = millis() + 30000; // startup delay 30 sec
-    }
-    else
-    {
-      for (byte x = 0; x < TASKS_MAX; x++)
-        timerSensor[x] = millis() + 0;
-      timer = millis() + 0; // no startup from deepsleep wake up
-    }
->>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:ESPEasy.ino
 
   sendSysInfoUDP(3);
 
@@ -1078,13 +1046,10 @@ void runEach30Seconds()
 
   WifiCheck();
 
-<<<<<<< HEAD:src/ESPEasy.ino
   #ifdef FEATURE_REPORTING
   ReportStatus();
   #endif
 
-=======
->>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:ESPEasy.ino
 }
 
 
@@ -1179,7 +1144,7 @@ void SensorSendTask(byte TaskIndex)
 /*********************************************************************************************\
  * set global system timer
 \*********************************************************************************************/
-boolean setSystemTimer(unsigned long timer, byte plugin, byte Par1, byte Par2, byte Par3)
+void setSystemTimer(unsigned long timer, byte plugin, byte Par1, byte Par2, byte Par3)
 {
   // plugin number and par1 form a unique key that can be used to restart a timer
   // first check if a timer is not already running for this request
@@ -1212,10 +1177,11 @@ boolean setSystemTimer(unsigned long timer, byte plugin, byte Par1, byte Par2, b
 }
 
 
+//EDWIN: this function seems to be unused?
 /*********************************************************************************************\
  * set global system command timer
 \*********************************************************************************************/
-boolean setSystemCMDTimer(unsigned long timer, String& action)
+void setSystemCMDTimer(unsigned long timer, String& action)
 {
   for (byte x = 0; x < SYSTEM_CMD_TIMER_MAX; x++)
     if (systemCMDTimers[x].timer == 0)
@@ -1230,7 +1196,7 @@ boolean setSystemCMDTimer(unsigned long timer, String& action)
 /*********************************************************************************************\
  * check global system timers
 \*********************************************************************************************/
-boolean checkSystemTimers()
+void checkSystemTimers()
 {
   for (byte x = 0; x < SYSTEM_TIMER_MAX; x++)
     if (systemTimers[x].timer != 0)
@@ -1305,11 +1271,8 @@ void backgroundtasks()
   #endif
 
   yield();
-<<<<<<< HEAD:src/ESPEasy.ino
 
   statusLED(false);
 
   runningBackgroundTasks=false;
-=======
->>>>>>> 884205feea8f19e7ed1e7846246d99ff4ebb8872:ESPEasy.ino
 }

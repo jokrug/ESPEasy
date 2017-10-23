@@ -82,10 +82,6 @@ boolean Plugin_157(byte function, struct EventStruct *event, String& string)
         break;
       }
 
-    case PLUGIN_WRITE:
-      {
-      }
-
     case PLUGIN_READ:
       {
         if (!Plugin_157_init)
